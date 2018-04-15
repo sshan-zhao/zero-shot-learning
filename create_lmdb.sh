@@ -6,6 +6,7 @@ data_root_dir="./ssd_dataset/$dataset_name"
 mapfile="./labelmap.prototxt"
 anno_type="detection"
 db="lmdb"
+outputs_dir="$db-dataset/$dataset_name"
 min_dim=0
 max_dim=0
 width=0
@@ -18,5 +19,9 @@ then
 fi
 for subset in val train
 do
-  python caffe-ssd/scripts/create_annoset.py --anno-type=$anno_type --label-map-file=$mapfile --min-dim=$min_dim --max-dim=$max_dim --resize-width=$width --resize-height=$height --check-label $extra_cmd $data_root_dir $data_root_dir/ImageSets/$subset.txt $data_root_dir/$db/$dataset_name"_"$subset"_"$db examples/$dataset_name
+  python caffe-ssd/scripts/create_annoset.py --anno-type=$anno_type --label-map-file=$mapfile --min-dim=$min_dim --max-dim=$max_dim --resize-width=$width --resize-height=$height --check-label $extra_cmd $data_root_dir $data_root_dir/ImageSets/$subset.txt $outputs_dir/$2"_"$subset"_"$db examples/$dataset_name
+  if [ $subset == val ]; then
+	cp $data_root_dir/ImageSets/$subset"_name_size.txt" $outputs_dir/
+  fi
 done
+cp $data_root_dir/bgr_mean.txt $outputs_dir/

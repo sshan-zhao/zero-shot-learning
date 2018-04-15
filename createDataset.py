@@ -111,6 +111,7 @@ def create():
 	train_file = open('{}/{}'.format(imgset_path, trainfile_name), 'w')
 	val_file = open('{}/{}'.format(imgset_path, valfile_name), 'w')
 	mean_file = open('{}/{}'.format(root_path, meanfile_name), 'w')
+	namesize_file = open('{}/{}'.format(imgset_path, namesizefile_name), 'w')
 
 	idx = 0
 
@@ -166,13 +167,15 @@ def create():
 
 		if idx in val_list:
 			val_file.write('{}/{} {}/{}\n'.format(imgfile, img_name, annofile, anno_name))
+			namesize_file.write('{}/{}/{} {} {}\n'.format(os.getcwd(),imgfile_path, img_name.replace('.jpg',''), str(resize), str(resize)))
 		else:
 			train_file.write('{}/{} {}/{}\n'.format(imgfile, img_name, annofile, anno_name))
 	
 		idx = idx+1
 
 	mean_file.write(str(mean[2])+' '+str(mean[1])+' '+str(mean[0]))
-
+	
+	namesize_file.close()
 	mean_file.close()
 	val_file.close()
 	train_file.close()
@@ -184,6 +187,7 @@ imgset = 'ImageSets'
 meanfile_name = 'bgr_mean.txt'
 trainfile_name = 'train.txt'
 valfile_name = 'val.txt'
+namesizefile_name = 'val_name_size.txt'
 targetpath = 'ssd_dataset'
 resize = 300
 val_num = 120
