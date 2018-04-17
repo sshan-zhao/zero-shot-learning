@@ -11,8 +11,5 @@ then
 	mkdir -p $save_file
 fi
 
-for file in $test_file/*.jpg
-do
-	echo $(basename $file .jpg)
-	python ssd_detect.py --gpu_id 1 --model_def $model_file/deploy.prototxt --model_weights $model_file/snapshot/SSD_${resize}x${resize}_iter_$iter.caffemodel --labelmap_file labelmap.prototxt --image_resize $resize --image_file $file --save_file $save_file/$(basename $file .jpg)
-done
+	python ssd_detect.py --gpu_id 0 --model_def $model_file/deploy.prototxt --model_weights $model_file/snapshot/SSD_${resize}x${resize}_iter_$iter.caffemodel --labelmap_file labelmap.prototxt --mean_file lmdb-dataset/$dataset/${cls}_$resize/bgr_mean.txt --image_resize $resize --images_file $test_file --save_file $save_file
+

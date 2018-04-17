@@ -11,37 +11,15 @@ import shutil
 import stat
 import subprocess
 
-def AddAttrEmbeddingLayers(net, attr_type='ori_attr', lr_mult=1, dropout=True):
+def AddAttrPredLayers(net, num_output=1000, lr_mult=1):
 
     kwargs = {
             'param': [dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)],
             'weight_filler': dict(type='xavier'),
             'bias_filler': dict(type='constant', value=0)}
-    from_layer = net.attr
-    if attr_type=='ori_attr':
-        net.attr_fc1 = L.InnerProduct(net.attr, num_output=4096, **kwargs)
-        net.attr_relu1 = L.ReLU(net.attr_fc1, in_place=True)
-        if dropout:
-            net.attr_drop1 = L.Dropout(net.attr_relu1, dropout_ratio=0.5, in_place=True)
-        net.attr_fc2 = L.InnerProduct(net.attr_relu1, num_output=4096, **kwargs)
-        net.attr_relu2 = L.ReLU(net.attr_fc2, in_place=True)
-        if dropout:
-            net.attr_drop2 = L.Dropout(net.attr_relu2, dropout_ratio=0.5, in_place=True)
-    else:
-
-        net.attr_conv1 = L.Convolution(net.attr, num_output=64, pad=1, kernel_size=3, **kwargs)
-
-        net.attr_relu1 = L.ReLU(net.attr_conv1, in_place=True)
-        net.attr_conv2 = L.Convolution(net.attr_relu1, num_output=64, pad=1, kernel_size=3, **kwargs)
-        net.attr_relu2 = L.ReLU(net.attr_conv2, in_place=True)
-        net.attr_fc1 = L.InnerProduct(net.attr_relu2, num_output=4096)
-        net.attr_relu3 = L.ReLU(net.attr_fc1, in_place=True)
-        if dropout:
-            net.attr_drop1 = L.Dropout(net.attr_relu3, dropout_ratio=0.5, in_place=True)
-        net.attr_fc2 = L.InnerProduct(net.attr_relu3, num_output=4096)
-        net.attr_relu4 = L.ReLU(net.attr_fc2, in_place=True)
-        if dropout:
-            net.attr_drop2 = L.Dropout(net.attr_relu4, dropout_ratio=0.5, in_place=True)
+    from_layer = net[net.keys()[-1]]
+    net.pred = L.InnerProduct(from_layer, num_output=num_output, **kwargs)
+        
 
 ### Modify the following parameters accordingly ###
 # The directory which contains the caffe code.
@@ -86,7 +64,7 @@ else:
     base_lr = 0.00004
 
 # Modify the job name if you want.
-job_name = "ZSL_{}_{}".format(attr_type.upper(), resize)
+job_name = "ATTR_PRED_{}_{}".format(attr_type.upper(), resize)
 # The name of the model. Modify it if you want.
 model_name = "{}".format(job_name)
 
@@ -106,7 +84,7 @@ snapshot_prefix = "{}/{}".format(snapshot_dir, model_name)
 # job script path.
 job_file = "{}/{}.sh".format(job_dir, model_name)
 
-pretrain_model = "{}/models/{}/{}_{}/ATTR_PRED_300x300/snapshot/ATTR_PRED_300x300_iter_80000.caffemodel".format(root_dir, dataset, cls, str(resize_width))
+pretrain_model = "{}/models/{}/{}_{}/SSD_300x300/snapshot/SSD_300x300_iter_120000.caffemodel".format(root_dir, dataset, cls, str(resize_width))
 # Solver parameters.
 # Defining which GPUs to use.
 gpulist = gpus.split(",")
@@ -157,8 +135,8 @@ make_if_not_exist(snapshot_dir)
 net = caffe.NetSpec()
 net.img, net.attr = L.Python(python_param=dict(
         module="datareader_layers",
-        layer="OriDataReaderLayer",
-        param_str="{{\'train_data_dir\': \'{}\',\'mean_file\': \'{}\', \'label_file\': \'{}\', \'attr_pc_file\': \'{}\', \'batch_size\': \'{}\', \'resize_height\': \'{}\', \'resize_width\': \'{}\'}}".format(train_data_dir, mean_file, 'labels.txt', 'attributes_per_class.txt', str(batch_size), str(resize_height), str(resize_width))),
+        layer="AnnoClassificationDataReaderLayer",
+        param_str="{{\'train_data_dir\': \'{}\',\'mean_file\': \'{}\', \'label_file\': \'{}\', \'attr_pc_file\': \'{}\', \'attr_file\': \'{}\', \'batch_size\': \'{}\', \'resize_height\': \'{}\', \'resize_width\': \'{}\'}}".format(train_data_dir, mean_file, 'labels.txt', 'attributes_per_class.txt', 'attributes.txt', str(batch_size), str(resize_height), str(resize_width))),
         ntop=2)
 
 with open('{}/{}'.format(train_data_dir, 'attributes_per_class.txt')) as f:
@@ -168,10 +146,8 @@ with open('{}/{}'.format(train_data_dir, 'attributes_per_class.txt')) as f:
 	attr = line[spos+1:epos].split()
 	attr_size = len(attr)
 VGGNetBody(net, from_layer='img', fully_conv=False, dropout=True, fc6='img_fc6', fc7='img_fc7')
-
-AddAttrEmbeddingLayers(net, attr_type=attr_type, lr_mult=lr_mult)
-
-net.loss = L.EuclideanLoss(net.relu7, net.attr_relu2, propagate_down = [True, True])
+AddAttrPredLayers(net, attr_size)
+net.loss = L.EuclideanLoss(net.pred, net.attr, propagate_down = [True, False])
 
 with open(train_net_file, 'w') as f:
     print('name: "{}_train"'.format(model_name), file=f)
@@ -187,10 +163,9 @@ with open(deploy_net_file, 'w') as f:
     del net_param.layer[0]
     del net_param.layer[-1]
     net_param.name = '{}_deploy'.format(model_name)
-    net_param.input.extend(['img', 'attr'])
+    net_param.input.extend(['img'])
     net_param.input_shape.extend([
-        caffe_pb2.BlobShape(dim=[1, 3, resize_height, resize_width]),
-	caffe_pb2.BlobShape(dim=[1, attr_size, 1, 1])])
+        caffe_pb2.BlobShape(dim=[1, 3, resize_height, resize_width])])
     print(net_param, file=f)
 shutil.copy(deploy_net_file, job_dir)
 
@@ -250,5 +225,5 @@ py_file = os.path.abspath(__file__)
 shutil.copy(py_file, job_dir)
 # Run the job.
 os.chmod(job_file, stat.S_IRWXU)
-#if run_soon:
-  #subprocess.call(job_file, shell=True)
+if run_soon:
+  subprocess.call(job_file, shell=True)

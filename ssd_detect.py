@@ -36,10 +36,11 @@ def get_labelname(labelmap, labels):
     return labelnames
 
 class CaffeDetection:
-    def __init__(self, gpu_id, model_def, model_weights, image_resize, labelmap_file):
+    def __init__(self, gpu_id, model_def, model_weights, image_resize, labelmap_file, mean_file):
         caffe.set_device(gpu_id)
         caffe.set_mode_gpu()
 
+	mean_value = open(mean_file, 'r').readline().split()
         self.image_resize = image_resize
         # Load the net in the test phase for inference, and configure input preprocessing.
         self.net = caffe.Net(model_def,      # defines the structure of the model
@@ -48,7 +49,7 @@ class CaffeDetection:
          # input preprocessing: 'data' is the name of the input blob == net.inputs[0]
         self.transformer = caffe.io.Transformer({'data': self.net.blobs['data'].data.shape})
         self.transformer.set_transpose('data', (2, 0, 1))
-        self.transformer.set_mean('data', np.array([104, 117, 123])) # mean pixel
+        self.transformer.set_mean('data', np.array([float(mean_value[0]), float(mean_value[1]), float(mean_value[2])])) # mean pixel
         # the reference model operates on images in [0,255] range instead of [0,1]
         self.transformer.set_raw_scale('data', 255)
         # the reference model has channels in BGR order instead of RGB
@@ -59,7 +60,7 @@ class CaffeDetection:
         self.labelmap = caffe_pb2.LabelMap()
         text_format.Merge(str(file.read()), self.labelmap)
 
-    def detect(self, image_file, conf_thresh=0.5, topn=5):
+    def detect(self, image_file, conf_thresh=0.1, topn=1):
         '''
         SSD detection
         '''
@@ -110,29 +111,35 @@ def main(args):
     '''main '''
     detection = CaffeDetection(args.gpu_id,
                                args.model_def, args.model_weights,
-                               args.image_resize, args.labelmap_file)
-    result = detection.detect(args.image_file)
-    print result
+                               args.image_resize, args.labelmap_file, args.mean_file)
 
-    img = Image.open(args.image_file)
-    draw = ImageDraw.Draw(img)
-    width, height = img.size
-    print width, height
-    for item in result:
-        xmin = int(round(item[0] * width))
-        ymin = int(round(item[1] * height))
-        xmax = int(round(item[2] * width))
-        ymax = int(round(item[3] * height))
-        draw.rectangle([xmin, ymin, xmax, ymax], outline=(255, 0, 0))
-        draw.text([xmin, ymin], item[-1] + str(item[-2]), (0, 0, 255))
-        print item
-        print [xmin, ymin, xmax, ymax]
-        print [xmin, ymin], item[-1]
-    img.save("{}.jpg".format(args.save_file))
-    #txt_file = open("{}.txt".format(args.save_file), 'w')
-    #txt_file.write("{:<10} {:<10} {:<10} {:<10} {:<10} {:<10}".format("ori_width", "ori_height", "xmin", "ymin", "xmax", "ymax"))
-    #txt_file.write("{:<10} {:<10} {:<10} {:<10} {:<10} {:<10}".format(str(width), str(height), str(xmin), str(ymin), (str(xmax)), str(ymax)))
-    #txt_file.close()
+    img_list = os.listdir(args.images_file)
+    for img_name in img_list:
+        if not os.path.splitext(img_name)[1] == '.jpg':
+		continue
+	print img_name
+        result = detection.detect(args.images_file+'/'+img_name)
+        print result
+
+        img = Image.open(args.images_file+'/'+img_name)
+        draw = ImageDraw.Draw(img)
+        width, height = img.size
+        print width, height
+        txt_file = open("{}/{}".format(args.save_file, img_name.replace('jpg','txt')), 'w')
+        for item in result:
+            xmin = int(round(item[0] * width))
+            ymin = int(round(item[1] * height))
+            xmax = int(round(item[2] * width))
+            ymax = int(round(item[3] * height))
+            draw.rectangle([xmin, ymin, xmax, ymax], outline=(255, 0, 0))
+            draw.text([xmin, ymin], item[-1] + str(item[-2]), (0, 0, 255))
+            print item
+            print [xmin, ymin, xmax, ymax]
+            print [xmin, ymin], item[-1]
+	    txt_file.write("{:<10} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10}\n".format("ori_width", "ori_height", "xmin", "ymin", "xmax", "ymax", "score"))
+	    txt_file.write("{:<10} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10}".format(str(width), str(height), str(xmin), str(ymin), (str(xmax)), str(ymax), str(item[-2])))
+        img.save("{}/{}.jpg".format(args.save_file, img_name))
+        txt_file.close()
 
 def parse_args():
     '''parse args'''
@@ -146,8 +153,9 @@ def parse_args():
     parser.add_argument('--model_weights',
                         default='models/VGGNet/VOC0712/SSD_300x300/'
                         'VGG_VOC0712_SSD_300x300_iter_120000.caffemodel')
-    parser.add_argument('--image_file', default='examples/images/fish-bike.jpg')
-    parser.add_argument('--save_file', default='detect_results/images/fish-bike')
+    parser.add_argument('--mean_file', default='bgr_mean.txt')
+    parser.add_argument('--images_file', default='examples/images')
+    parser.add_argument('--save_file', default='detect_results/images')
     return parser.parse_args()
 
 if __name__ == '__main__':
