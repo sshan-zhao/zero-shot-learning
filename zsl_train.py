@@ -11,7 +11,32 @@ import shutil
 import stat
 import subprocess
 
-def AddAttrEmbeddingLayers(net, attr_type='ori_attr', lr_mult=1, dropout=True):
+def AddExtractImgFeatLayers(net, lr_mult=1, dropout=True):
+
+    kwargs = {
+            'param': [dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)],
+            'weight_filler': dict(type='xavier'),
+            'bias_filler': dict(type='constant', value=0)}
+    net.conv3_new1 = L.Convolution(net.relu3_3, num_output=256, pad=1, kernel_size=3, stride=2, **kwargs)
+    net.relu3_new1 = L.ReLU(net.conv3_new1, in_place=True)
+    net.conv3_new2 = L.Convolution(net.relu3_new1, num_output=256, pad=1, kernel_size=3, stride=2, **kwargs)
+    net.relu3_new2 = L.ReLU(net.conv3_new2, in_place=True)
+    net.conv4_new = L.Convolution(net.relu4_3, num_output=512, pad=1, kernel_size=3, stride=2, **kwargs)
+    net.relu4_new = L.ReLU(net.conv4_new, in_place=True)
+    net.concat = L.Concat(net.relu5_3, net.relu4_new, net.relu3_new2)
+    net.conv6 = L.Convolution(net.concat, num_output=512, pad=1, kernel_size=3, stride=2, **kwargs)
+    net.relu6 = L.ReLU(net.conv6, in_place=True)
+    net.img_fc1 = L.InnerProduct(net.relu6, num_output=1024, **kwargs)
+    net.img_relu1 = L.ReLU(net.img_fc1, in_place=True)
+    if dropout:
+      net.img_drop1 = L.Dropout(net.img_relu1, dropout_ratio=0.2, in_place=True)
+    
+    net.img_fc2 = L.InnerProduct(net.img_relu1, num_output=1024, **kwargs)
+    net.img_relu2 = L.ReLU(net.img_fc2, in_place=True)
+    if dropout:
+      net.img_drop2 = L.Dropout(net.img_relu2, dropout_ratio=0.2, in_place=True)
+
+def AddAttrEmbeddingLayers(net, attr_type='ori_attr', num_output=1000, lr_mult=1, dropout=True):
 
     kwargs = {
             'param': [dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)],
@@ -19,11 +44,28 @@ def AddAttrEmbeddingLayers(net, attr_type='ori_attr', lr_mult=1, dropout=True):
             'bias_filler': dict(type='constant', value=0)}
     from_layer = net.attr
     if attr_type=='ori_attr':
-        net.attr_fc1 = L.InnerProduct(net.attr, num_output=4096, **kwargs)
+        net.attr_fc1 = L.InnerProduct(net.attr, num_output=512, **kwargs)
         net.attr_relu1 = L.ReLU(net.attr_fc1, in_place=True)
         if dropout:
             net.attr_drop1 = L.Dropout(net.attr_relu1, dropout_ratio=0.5, in_place=True)
-        net.attr_fc2 = L.InnerProduct(net.attr_relu1, num_output=4096, **kwargs)
+        net.attr_fc2 = L.InnerProduct(net.attr_relu1, num_output=1024, **kwargs)
+        net.attr_relu2 = L.ReLU(net.attr_fc2, in_place=True)
+        if dropout:
+            net.attr_drop2 = L.Dropout(net.attr_relu2, dropout_ratio=0.5, in_place=True)
+	
+        net.attr_fc3 = L.InnerProduct(net.attr_relu2, num_output=512, **kwargs)
+        net.attr_relu3 = L.ReLU(net.attr_fc3, in_place=True)
+        if dropout:
+            net.attr_drop3 = L.Dropout(net.attr_relu3, dropout_ratio=0.5, in_place=True)
+        net.attr_pred = L.InnerProduct(net.attr_relu3, num_output=num_output, **kwargs)
+
+    elif attr_type=='ori_attr2':
+	        
+        net.attr_fc1 = L.InnerProduct(net.attr, num_output=1024, **kwargs)
+        net.attr_relu1 = L.ReLU(net.attr_fc1, in_place=True)
+        if dropout:
+            net.attr_drop1 = L.Dropout(net.attr_relu1, dropout_ratio=0.5, in_place=True)
+        net.attr_fc2 = L.InnerProduct(net.attr_relu1, num_output=1024, **kwargs)
         net.attr_relu2 = L.ReLU(net.attr_fc2, in_place=True)
         if dropout:
             net.attr_drop2 = L.Dropout(net.attr_relu2, dropout_ratio=0.5, in_place=True)
@@ -83,7 +125,7 @@ if use_batchnorm:
     base_lr = 0.0004
 else:
     # A learning rate for batch_size = 1, num_gpus = 1.
-    base_lr = 0.00004
+    base_lr = 0.0001
 
 # Modify the job name if you want.
 job_name = "ZSL_{}_{}".format(attr_type.upper(), resize)
@@ -106,7 +148,7 @@ snapshot_prefix = "{}/{}".format(snapshot_dir, model_name)
 # job script path.
 job_file = "{}/{}.sh".format(job_dir, model_name)
 
-pretrain_model = "{}/models/{}/{}_{}/ATTR_PRED_300x300/snapshot/ATTR_PRED_300x300_iter_80000.caffemodel".format(root_dir, dataset, cls, str(resize_width))
+pretrain_model = "{}/models/{}/{}_{}/ATTR_PRED2_300x300/snapshot/ATTR_PRED2_300x300_iter_80000.caffemodel".format(root_dir, dataset, cls, str(resize_width))
 # Solver parameters.
 # Defining which GPUs to use.
 gpulist = gpus.split(",")
@@ -130,7 +172,7 @@ solver_param = {
     'base_lr': base_lr,
     'weight_decay': 0.0005,
     'lr_policy': "multistep",
-    'stepvalue': [80000, 100000, 120000],
+    'stepvalue': [40000, 80000, 120000],
     'gamma': 0.1,
     'momentum': 0.9,
     'iter_size': iter_size,
@@ -167,11 +209,16 @@ with open('{}/{}'.format(train_data_dir, 'attributes_per_class.txt')) as f:
 	epos = line.find(']')
 	attr = line[spos+1:epos].split()
 	attr_size = len(attr)
-VGGNetBody(net, from_layer='img', fully_conv=False, dropout=True, fc6='img_fc6', fc7='img_fc7')
+VGGNetBody(net, from_layer='img', need_fc=False, lr_mult=0)
 
-AddAttrEmbeddingLayers(net, attr_type=attr_type, lr_mult=lr_mult)
+AddExtractImgFeatLayers(net, lr_mult=0, dropout=False)
 
-net.loss = L.EuclideanLoss(net.relu7, net.attr_relu2, propagate_down = [True, True])
+AddAttrEmbeddingLayers(net, attr_type=attr_type, lr_mult=lr_mult, dropout=False, num_output=attr_size)
+
+net.loss1 = L.SmoothL1Loss(net.img_relu2, net.attr_relu2, propagate_down = [False, True])
+if attr_type == 'ori_attr':
+	net.loss2 = L.SmoothL1Loss(net.attr_pred, net.attr)
+
 
 with open(train_net_file, 'w') as f:
     print('name: "{}_train"'.format(model_name), file=f)
@@ -250,5 +297,5 @@ py_file = os.path.abspath(__file__)
 shutil.copy(py_file, job_dir)
 # Run the job.
 os.chmod(job_file, stat.S_IRWXU)
-#if run_soon:
-  #subprocess.call(job_file, shell=True)
+if run_soon:
+  subprocess.call(job_file, shell=True)

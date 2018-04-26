@@ -3,7 +3,7 @@ cls=$2
 iter=$3
 resize=300
 test_file="data/$dataset/${cls}_test"
-save_file="detect_results/$dataset/${cls}_test/SSD_${resize}x${resize}_iter_$iter"
+save_file="detect_results/$dataset/${cls}_test/SSD_${resize}x${resize}_iter_${iter}_test"
 model_file="models/$dataset/${cls}_$resize/SSD_${resize}x${resize}"
 
 if [ ! -d $save_file ]

@@ -133,7 +133,8 @@ def create():
 
 		img_name = img_info[epos+2:-1]
 		img = Image.open('{}/{}'.format(sourcefile_path, img_name))
-
+		if img.mode != 'RGB':
+			img = img.convert('RGB')
 		width = img.size[0]
 		height = img.size[1]
 

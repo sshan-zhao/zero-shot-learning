@@ -307,12 +307,18 @@ def ZFNetBody(net, from_layer, need_fc=True, fully_conv=False, reduced=False,
 
 
 def VGGNetBody(net, from_layer, need_fc=True, fully_conv=False, reduced=False,
-        dilated=False, nopool=False, dropout=True, freeze_layers=[], dilate_pool4=False, fc6="fc6", fc7="fc7"):
-    kwargs = {
+        dilated=False, nopool=False, dropout=True, freeze_layers=[], dilate_pool4=False, fc6="fc6", fc7="fc7",
+        lr_mult=1):
+    if lr_mult==0:
+    	kwargs = {
+            'param': [dict(lr_mult=0, decay_mult=0), dict(lr_mult=0, decay_mult=0)],
+            'weight_filler': dict(type='xavier'),
+            'bias_filler': dict(type='constant', value=0)}
+    else:
+    	kwargs = {
             'param': [dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)],
             'weight_filler': dict(type='xavier'),
             'bias_filler': dict(type='constant', value=0)}
-
     assert from_layer in net.keys()
     net.conv1_1 = L.Convolution(net[from_layer], num_output=64, pad=1, kernel_size=3, **kwargs)
 

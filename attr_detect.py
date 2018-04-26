@@ -35,14 +35,13 @@ class CaffeDetection:
         self.mean_value = np.array([float(mean_value[0]), float(mean_value[1]), float(mean_value[2])]) # mean pixel
 
         self.known_labels = []
-        with open(label_file, 'r') as f:
+	with open(label_file, 'r') as f:
             for line in f.readlines():
                 img_info = line.replace(' ', '').split(',')
                 label = img_info[1]
                 if not label in self.known_labels:
-		    print label
                     self.known_labels.append(label)
-        print len(self.known_labels)
+	print len(self.known_labels)
         idx = 0
         self.attr_lab_set = dict()
         self.attr_size = 0
@@ -94,15 +93,18 @@ class CaffeDetection:
         #Run the net and examine the top_k results
         self.net.blobs['img'].data[...] = in_.copy()
 
+        outputs = self.net.forward()
+        pred = outputs['pred']
         lab_dist = dict()
+#	print pred
         for lab in self.attr_lab_set:
-
-            self.net.blobs['attr'].data[...] = self.attr_lab_set[lab]
-            outputs = self.net.forward()
-            pred = outputs['pred']
             gt = self.attr_lab_set[lab]
-            dist = np.sum((pred-gt)**2)
+	    dist = 0.0
+	    for idx in range(0,gt.shape[0]):
+		dist = dist + (gt[idx,0,0]-pred[0,idx])**2
+            #dist = np.sum((pred-gt)**2)
             lab_dist[lab] = dist
+#	print lab_dist
         return sorted(lab_dist.items(), lambda x, y: cmp(x[1], y[1])), np.array([xmin, ymin, xmax, ymax])
 
 def main(args):
@@ -127,9 +129,10 @@ def main(args):
             width, height = img.size
             print width, height
             draw.rectangle([bbox[0], bbox[1], bbox[2], bbox[3]], outline=(255, 0, 0))
+	    print len(bbox), len(result)
             for i in range(0,5):
                 draw.text([bbox[0]+i*30, bbox[1]+i*30], result[i][0]+str(result[i][1]), (0, 0, 255))
-            print [bbox[0], bbox[1]], result[i][0]
+            print [bbox[0], bbox[1]], result[0][0]
 	    prediction.write("{} {}\n".format(img_name, result[0][0]))
             img.save("{}/{}.jpg".format(args.save_file, img_name))
     prediction.close()

@@ -67,6 +67,9 @@ class CaffeDetection:
         # set net to batch size of 1
         # image_resize = 300
         self.net.blobs['data'].reshape(1, 3, self.image_resize, self.image_resize)
+	image = Image.open(image_file)
+	image = image.convert('RGB')
+	image.save(image_file)
         image = caffe.io.load_image(image_file)
 
         #Run the net and examine the top_k results

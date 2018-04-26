@@ -100,12 +100,14 @@ class CaffeDetection:
 
             self.net.blobs['attr'].data[...] = self.attr_lab_set[lab]
             outputs = self.net.forward()
-            img_feat = outputs['img_fc7']
+            img_feat = outputs['img_fc2']
             attr_feat = outputs['attr_fc2']
-	    print img_feat
-	    print attr_feat
-            dist = np.sum((img_feat-attr_feat)**2)
-            lab_dist[lab] = dist
+            dist = 0.0
+            for idx in range(0,img_feat.shape[0]*img_feat.shape[1]):
+	#	print img_feat[0,idx], attr_feat[0,idx]
+		dist = dist + (img_feat[0,idx]-attr_feat[0,idx])**2
+	    lab_dist[lab] = dist
+            print "dist: ", str(dist)
         return sorted(lab_dist.items(), lambda x, y: cmp(x[1], y[1])), np.array([xmin, ymin, xmax, ymax])
 
 def main(args):
@@ -131,8 +133,9 @@ def main(args):
             print width, height
             draw.rectangle([bbox[0], bbox[1], bbox[2], bbox[3]], outline=(255, 0, 0))
             for i in range(0,5):
+	        print result[i][0], str(result[i][1])
                 draw.text([bbox[0]+i*30, bbox[1]+i*30], result[i][0]+str(result[i][1]), (0, 0, 255))
-            print [bbox[0], bbox[1]], result[i][0]
+            print [bbox[0], bbox[1]], result[0][0]
 	    prediction.write("{} {}\n".format(img_name, result[0][0]))
             img.save("{}/{}.jpg".format(args.save_file, img_name))
     prediction.close()

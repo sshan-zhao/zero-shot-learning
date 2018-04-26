@@ -11,32 +11,6 @@ import shutil
 import stat
 import subprocess
 
-def AddAttrPredLayers(net, num_output=1000, lr_mult=1):
-
-    kwargs = {
-            'param': [dict(lr_mult=1, decay_mult=1), dict(lr_mult=2, decay_mult=0)],
-            'weight_filler': dict(type='xavier'),
-            'bias_filler': dict(type='constant', value=0)}
-    net.conv3_new1 = L.Convolution(net.relu3_3, num_output=256, pad=1, kernel_size=3, stride=2, **kwargs)
-    net.relu3_new1 = L.ReLU(net.conv3_new1, in_place=True)
-    net.conv3_new2 = L.Convolution(net.relu3_new1, num_output=256, pad=1, kernel_size=3, stride=2, **kwargs)
-    net.relu3_new2 = L.ReLU(net.conv3_new2, in_place=True)
-    net.conv4_new = L.Convolution(net.relu4_3, num_output=512, pad=1, kernel_size=3, stride=2, **kwargs)
-    net.relu4_new = L.ReLU(net.conv4_new, in_place=True)
-    net.concat = L.Concat(net.relu5_3, net.relu4_new, net.relu3_new2)
-    net.conv6 = L.Convolution(net.concat, num_output=512, pad=1, kernel_size=3, stride=2, **kwargs)
-    net.relu6 = L.ReLU(net.conv6, in_place=True)
-    net.img_fc1 = L.InnerProduct(net.relu6, num_output=1024, **kwargs)
-    net.img_relu1 = L.ReLU(net.img_fc1, in_place=True)
-    net.img_drop1 = L.Dropout(net.img_relu1, dropout_ratio=0.2, in_place=True)
-    
-    net.img_fc2 = L.InnerProduct(net.img_drop1, num_output=1024, **kwargs)
-    net.img_relu2 = L.ReLU(net.img_fc2, in_place=True)
-    net.img_drop2 = L.Dropout(net.img_relu2, dropout_ratio=0.2, in_place=True)
-    net.pred = L.InnerProduct(net.img_drop2, num_output=num_output, **kwargs)
-    net.sig = L.Sigmoid(net.pred, in_place=True)
-        
-
 ### Modify the following parameters accordingly ###
 # The directory which contains the caffe code.
 # We assume you are running the script at the CAFFE_ROOT.
@@ -60,12 +34,12 @@ root_dir = os.getcwd()
 train_data_dir = "{}/data/{}/{}_train/images".format(root_dir, dataset, cls, cls)
 
 # Specify the batch sampler.
-resize_width = 300
-resize_height = 300
+resize_width = 224
+resize_height = 224
 resize = "{}x{}".format(resize_width, resize_height)
 
 python_module = "{}".format(root_dir)
-mean_file = "{}/lmdb-dataset/{}/{}_{}/bgr_mean.txt".format(root_dir, dataset, cls, str(resize_width))
+mean_file = "{}/lmdb-dataset/{}/{}_{}/bgr_mean.txt".format(root_dir, dataset, cls, str(300))
 
 # If true, use batch norm for all newly added layers.
 # Currently only the non batch norm version has been tested.
@@ -76,10 +50,10 @@ if use_batchnorm:
     base_lr = 0.0004
 else:
     # A learning rate for batch_size = 1, num_gpus = 1.
-    base_lr = 0.00004
+    base_lr = 0.01
 
 # Modify the job name if you want.
-job_name = "ATTR_PRED2_{}".format(resize)
+job_name = "CLS_{}".format(resize)
 # The name of the model. Modify it if you want.
 model_name = "{}".format(job_name)
 
@@ -99,15 +73,14 @@ snapshot_prefix = "{}/{}".format(snapshot_dir, model_name)
 # job script path.
 job_file = "{}/{}.sh".format(job_dir, model_name)
 
-pretrain_model = "{}/models/{}/{}_{}/SSD_300x300/snapshot/SSD_300x300_iter_120000.caffemodel".format(root_dir, dataset, cls, str(resize_width))
 # Solver parameters.
 # Defining which GPUs to use.
 gpulist = gpus.split(",")
 num_gpus = len(gpulist)
 
 # Divide the mini-batch to different GPUs.
-batch_size = 8
-accum_batch_size = 8
+batch_size = 16
+accum_batch_size = 16
 iter_size = accum_batch_size / batch_size
 solver_mode = P.Solver.CPU
 device_id = 0
@@ -121,16 +94,16 @@ if num_gpus > 0:
 solver_param = {
     # Train parameters
     'base_lr': base_lr,
-    'weight_decay': 0.0005,
+    'weight_decay': 0.0002,
     'lr_policy': "multistep",
     'stepvalue': [40000, 80000, 120000],
     'gamma': 0.1,
     'momentum': 0.9,
     'iter_size': iter_size,
     'max_iter': 120000,
-    'snapshot': 20000,
+    'snapshot': 80000,
     'display': 10,
-    'average_loss': 10,
+    'average_loss': 40,
     'type': "SGD",
     'solver_mode': solver_mode,
     'device_id': device_id,
@@ -141,47 +114,50 @@ solver_param = {
 ### Hopefully you don't need to change the following ###
 # Check file.
 check_if_exist(train_data_dir)
-check_if_exist(pretrain_model)
 make_if_not_exist(save_dir)
 make_if_not_exist(job_dir)
 make_if_not_exist(snapshot_dir)
 
 # Create train net.
 net = caffe.NetSpec()
-net.img, net.attr = L.Python(python_param=dict(
+net.data, net.label = L.Python(python_param=dict(
         module="datareader_layers",
-        layer="AnnoClassificationDataReaderLayer",
-        param_str="{{\'train_data_dir\': \'{}\',\'mean_file\': \'{}\', \'label_file\': \'{}\', \'attr_pc_file\': \'{}\', \'attr_file\': \'{}\', \'batch_size\': \'{}\', \'resize_height\': \'{}\', \'resize_width\': \'{}\'}}".format(train_data_dir, mean_file, 'labels.txt', 'attributes_per_class.txt', 'attributes.txt', str(batch_size), str(resize_height), str(resize_width))),
+        layer="ClsDataReaderLayer",
+        param_str="{{\'train_data_dir\': \'{}\',\'mean_file\': \'{}\', \'label_file\': \'{}\', \'label_list_file\': \'{}\', \'batch_size\': \'{}\', \'resize_height\': \'{}\', \'resize_width\': \'{}\'}}".format(train_data_dir, mean_file, 'labels.txt', 'label_list.txt', str(batch_size), str(resize_height), str(resize_width))),
         ntop=2)
 
-with open('{}/{}'.format(train_data_dir, 'attributes_per_class.txt')) as f:
-	line = f.readline()
-	spos = line.find('[')
-	epos = line.find(']')
-	attr = line[spos+1:epos].split()
-	attr_size = len(attr)
-VGGNetBody(net, from_layer='img', fully_conv=False, dropout=True, need_fc=False)
-AddAttrPredLayers(net, attr_size)
-net.loss = L.SmoothL1Loss(net[net.keys()[-1]], net.attr, propagate_down = [True, False])
+with open('{}/{}'.format(train_data_dir, 'label_list.txt')) as f:
+	line = f.readlines()
+	lab_num = len(line)
+
+baseline_train_pro = 'bvlc_googlenet/train_val.prototxt'
+baseline_deploy_pro = 'bvlc_googlenet/deploy.prototxt'
+
+with open(baseline_train_pro, 'r') as f:
+    baseline_train_str = f.read()
+
+with open(baseline_deploy_pro, 'r') as f:
+    baseline_deploy_str = f.read()
+
+pro_str = '%s'%net.to_proto()+baseline_train_str
+
+replacement = {'$NUM_OUTPUT': ('%d'%lab_num)}
+
+for r in replacement:
+    pro_str = pro_str.replace(r, replacement[r])
+    baseline_deploy_str = baseline_deploy_str.replace(r, replacement[r])
 
 with open(train_net_file, 'w') as f:
     print('name: "{}_train"'.format(model_name), file=f)
-    print(net.to_proto(), file=f)
+    print(pro_str, file=f)
 shutil.copy(train_net_file, job_dir)
 
 # Create deploy net.
 # Remove the first and last layer from test net.
 deploy_net = net
 with open(deploy_net_file, 'w') as f:
-    net_param = deploy_net.to_proto()
-    # Remove the first (AnnotatedData) and last (DetectionEvaluate) layer from test net.
-    del net_param.layer[0]
-    del net_param.layer[-1]
-    net_param.name = '{}_deploy'.format(model_name)
-    net_param.input.extend(['img'])
-    net_param.input_shape.extend([
-        caffe_pb2.BlobShape(dim=[1, 3, resize_height, resize_width])])
-    print(net_param, file=f)
+    print('name: "{}_deploy"'.format(model_name), file=f)
+    print(baseline_deploy_str, file=f)
 shutil.copy(deploy_net_file, job_dir)
 
 # Create solver.
@@ -204,7 +180,7 @@ for file in os.listdir(snapshot_dir):
     if iter > max_iter:
       max_iter = iter
 
-train_src_param = '--weights="{}" \\\n'.format(pretrain_model)
+train_src_param = ''#'--weights="{}"  \\\n'.format(pretrain_model)
 if resume_training:
   if max_iter > 0:
     train_src_param = '--snapshot="{}_iter_{}.solverstate" \\\n'.format(snapshot_prefix, max_iter)

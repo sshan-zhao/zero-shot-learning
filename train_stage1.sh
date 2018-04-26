@@ -1,1 +1,1 @@
-python ssd_train.py a_dataset fruits_300 1
+python ssd_train.py b_dataset hairstyles_300 0
